@@ -18,7 +18,7 @@ import (
 	"io/ioutil"
 	"math/bits"
 
-	"golang.org/x/crypto/internal/chacha20"
+	"github.com/wanyvic/internal/chacha20"
 	"golang.org/x/crypto/poly1305"
 )
 

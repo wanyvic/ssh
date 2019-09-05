@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/wanyvic/ssh"
 )
 
 func TestRunCommandSuccess(t *testing.T) {
@@ -214,6 +214,28 @@ func TestKeyChange(t *testing.T) {
 
 	if changes := hostDB.checkCount; changes < 4 {
 		t.Errorf("got %d key changes, want 4", changes)
+	}
+}
+
+func TestInvalidTerminalMode(t *testing.T) {
+	if runtime.GOOS == "aix" {
+		// On AIX, sshd cannot acquire /dev/pts/* if launched as
+		// a non-root user.
+		t.Skipf("skipping on %s", runtime.GOOS)
+	}
+	server := newServer(t)
+	defer server.Shutdown()
+	conn := server.Dial(clientConfig())
+	defer conn.Close()
+
+	session, err := conn.NewSession()
+	if err != nil {
+		t.Fatalf("session failed: %v", err)
+	}
+	defer session.Close()
+
+	if err = session.RequestPty("vt100", 80, 40, ssh.TerminalModes{255: 1984}); err == nil {
+		t.Fatalf("req-pty failed: successful request with invalid mode")
 	}
 }
 
