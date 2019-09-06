@@ -9,8 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"strings"
+
+	"github.com/libp2p/go-libp2p-core/network"
 )
 
 // The Permissions type holds fine-grained permissions that are
@@ -187,7 +188,7 @@ type ServerConn struct {
 //
 // The returned error may be of type *ServerAuthError for
 // authentication errors.
-func NewServerConn(c net.Conn, config *ServerConfig) (*ServerConn, <-chan NewChannel, <-chan *Request, error) {
+func NewServerConn(stream network.Stream, config *ServerConfig) (*ServerConn, <-chan NewChannel, <-chan *Request, error) {
 	fullConf := *config
 	fullConf.SetDefaults()
 	if fullConf.MaxAuthTries == 0 {
@@ -201,11 +202,11 @@ func NewServerConn(c net.Conn, config *ServerConfig) (*ServerConn, <-chan NewCha
 	}
 
 	s := &connection{
-		sshConn: sshConn{conn: c},
+		sshConn: sshConn{stream: stream},
 	}
 	perms, err := s.serverHandshake(&fullConf)
 	if err != nil {
-		c.Close()
+		stream.Close()
 		return nil, nil, nil, err
 	}
 	return &ServerConn{s, perms}, s.mux.incomingChannels, s.mux.incomingRequests, nil
@@ -240,12 +241,12 @@ func (s *connection) serverHandshake(config *ServerConfig) (*Permissions, error)
 		s.serverVersion = []byte(packageVersion)
 	}
 	var err error
-	s.clientVersion, err = exchangeVersions(s.sshConn.conn, s.serverVersion)
+	s.clientVersion, err = exchangeVersions(s.sshConn.stream, s.serverVersion)
 	if err != nil {
 		return nil, err
 	}
 
-	tr := newTransport(s.sshConn.conn, config.Rand, false /* not client */)
+	tr := newTransport(s.sshConn.stream, config.Rand, false /* not client */)
 	s.transport = newServerTransport(tr, s.clientVersion, s.serverVersion, config)
 
 	if err := s.transport.waitSession(); err != nil {
@@ -291,35 +292,35 @@ func isAcceptableAlgo(algo string) bool {
 	return false
 }
 
-func checkSourceAddress(addr net.Addr, sourceAddrs string) error {
-	if addr == nil {
-		return errors.New("ssh: no address known for client, but source-address match required")
-	}
+// func checkSourceAddress(addr ma.Multiaddr, sourceAddrs string) error {
+// 	if addr == nil {
+// 		return errors.New("ssh: no address known for client, but source-address match required")
+// 	}
 
-	tcpAddr, ok := addr.(*net.TCPAddr)
-	if !ok {
-		return fmt.Errorf("ssh: remote address %v is not an TCP address when checking source-address match", addr)
-	}
+// 	tcpAddr, ok := addr.(ma.Multiaddr)
+// 	if !ok {
+// 		return fmt.Errorf("ssh: remote address %v is not an TCP address when checking source-address match", addr)
+// 	}
+// 	var addrs net.TCPAddr
+// 	for _, sourceAddr := range strings.Split(sourceAddrs, ",") {
+// 		if allowedIP := net.ParseIP(sourceAddr); allowedIP != nil {
+// 			if allowedIP.Equal(tcpAddr.IP) {
+// 				return nil
+// 			}
+// 		} else {
+// 			_, ipNet, err := net.ParseCIDR(sourceAddr)
+// 			if err != nil {
+// 				return fmt.Errorf("ssh: error parsing source-address restriction %q: %v", sourceAddr, err)
+// 			}
 
-	for _, sourceAddr := range strings.Split(sourceAddrs, ",") {
-		if allowedIP := net.ParseIP(sourceAddr); allowedIP != nil {
-			if allowedIP.Equal(tcpAddr.IP) {
-				return nil
-			}
-		} else {
-			_, ipNet, err := net.ParseCIDR(sourceAddr)
-			if err != nil {
-				return fmt.Errorf("ssh: error parsing source-address restriction %q: %v", sourceAddr, err)
-			}
+// 			if ipNet.Contains(tcpAddr.IP) {
+// 				return nil
+// 			}
+// 		}
+// 	}
 
-			if ipNet.Contains(tcpAddr.IP) {
-				return nil
-			}
-		}
-	}
-
-	return fmt.Errorf("ssh: remote address %v is not allowed because of source-address restriction", addr)
-}
+// 	return fmt.Errorf("ssh: remote address %v is not allowed because of source-address restriction", addr)
+// }
 
 func gssExchangeToken(gssapiConfig *GSSAPIWithMICConfig, firstToken []byte, s *connection,
 	sessionID []byte, userAuthReq userAuthRequestMsg) (authErr error, perms *Permissions, err error) {
@@ -522,9 +523,9 @@ userAuthLoop:
 				candidate.pubKeyData = pubKeyData
 				candidate.perms, candidate.result = config.PublicKeyCallback(s, pubKey)
 				if candidate.result == nil && candidate.perms != nil && candidate.perms.CriticalOptions != nil && candidate.perms.CriticalOptions[sourceAddressCriticalOption] != "" {
-					candidate.result = checkSourceAddress(
-						s.RemoteAddr(),
-						candidate.perms.CriticalOptions[sourceAddressCriticalOption])
+					// candidate.result = checkSourceAddress(
+					// 	s.RemoteMultiaddr(),
+					// 	candidate.perms.CriticalOptions[sourceAddressCriticalOption])
 				}
 				cache.add(candidate)
 			}

@@ -6,7 +6,9 @@ package ssh
 
 import (
 	"fmt"
-	"net"
+
+	"github.com/libp2p/go-libp2p-core/network"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // OpenChannelError is returned if the other side rejects an
@@ -37,10 +39,10 @@ type ConnMetadata interface {
 	ServerVersion() []byte
 
 	// RemoteAddr returns the remote address for this connection.
-	RemoteAddr() net.Addr
+	RemoteMultiaddr() ma.Multiaddr
 
 	// LocalAddr returns the local address for this connection.
-	LocalAddr() net.Addr
+	LocalMultiaddr() ma.Multiaddr
 }
 
 // Conn represents an SSH connection for both server and client roles.
@@ -94,13 +96,13 @@ type connection struct {
 }
 
 func (c *connection) Close() error {
-	return c.sshConn.conn.Close()
+	return c.sshConn.stream.Close()
 }
 
 // sshconn provides net.Conn metadata, but disallows direct reads and
 // writes.
 type sshConn struct {
-	conn net.Conn
+	stream network.Stream
 
 	user          string
 	sessionID     []byte
@@ -118,16 +120,16 @@ func (c *sshConn) User() string {
 	return c.user
 }
 
-func (c *sshConn) RemoteAddr() net.Addr {
-	return c.conn.RemoteAddr()
+func (c *sshConn) RemoteMultiaddr() ma.Multiaddr {
+	return c.stream.Conn().RemoteMultiaddr()
 }
 
 func (c *sshConn) Close() error {
-	return c.conn.Close()
+	return c.stream.Close()
 }
 
-func (c *sshConn) LocalAddr() net.Addr {
-	return c.conn.LocalAddr()
+func (c *sshConn) LocalMultiaddr() ma.Multiaddr {
+	return c.stream.Conn().LocalMultiaddr()
 }
 
 func (c *sshConn) SessionID() []byte {

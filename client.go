@@ -8,10 +8,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/libp2p/go-libp2p-core/network"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // Client implements a traditional SSH client that supports shells,
@@ -68,20 +70,20 @@ func NewClient(c Conn, chans <-chan NewChannel, reqs <-chan *Request) *Client {
 // NewClientConn establishes an authenticated SSH connection using c
 // as the underlying transport.  The Request and NewChannel channels
 // must be serviced or the connection will hang.
-func NewClientConn(c net.Conn, addr string, config *ClientConfig) (Conn, <-chan NewChannel, <-chan *Request, error) {
+func NewClientConn(s network.Stream, addr string, config *ClientConfig) (Conn, <-chan NewChannel, <-chan *Request, error) {
 	fullConf := *config
 	fullConf.SetDefaults()
 	if fullConf.HostKeyCallback == nil {
-		c.Close()
+		s.Close()
 		return nil, nil, nil, errors.New("ssh: must specify HostKeyCallback")
 	}
 
 	conn := &connection{
-		sshConn: sshConn{conn: c},
+		sshConn: sshConn{stream: s},
 	}
 
 	if err := conn.clientHandshake(addr, &fullConf); err != nil {
-		c.Close()
+		s.Close()
 		return nil, nil, nil, fmt.Errorf("ssh: handshake failed: %v", err)
 	}
 	conn.mux = newMux(conn.transport)
@@ -97,14 +99,14 @@ func (c *connection) clientHandshake(dialAddress string, config *ClientConfig) e
 		c.clientVersion = []byte(packageVersion)
 	}
 	var err error
-	c.serverVersion, err = exchangeVersions(c.sshConn.conn, c.clientVersion)
+	c.serverVersion, err = exchangeVersions(c.sshConn.stream, c.clientVersion)
 	if err != nil {
 		return err
 	}
 
 	c.transport = newClientTransport(
-		newTransport(c.sshConn.conn, config.Rand, true /* is client */),
-		c.clientVersion, c.serverVersion, config, dialAddress, c.sshConn.RemoteAddr())
+		newTransport(c.sshConn.stream, config.Rand, true /* is client */),
+		c.clientVersion, c.serverVersion, config, dialAddress, c.sshConn.RemoteMultiaddr())
 	if err := c.transport.waitSession(); err != nil {
 		return err
 	}
@@ -169,24 +171,24 @@ func (c *Client) handleChannelOpens(in <-chan NewChannel) {
 // initiates the SSH handshake, and then sets up a Client.  For access
 // to incoming channels and requests, use net.Dial with NewClientConn
 // instead.
-func Dial(network, addr string, config *ClientConfig) (*Client, error) {
-	conn, err := net.DialTimeout(network, addr, config.Timeout)
-	if err != nil {
-		return nil, err
-	}
-	c, chans, reqs, err := NewClientConn(conn, addr, config)
-	if err != nil {
-		return nil, err
-	}
-	return NewClient(c, chans, reqs), nil
-}
+// func Dial(network, addr string, config *ClientConfig) (*Client, error) {
+// 	conn, err := net.DialTimeout(network, addr, config.Timeout)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	c, chans, reqs, err := NewClientConn(conn, addr, config)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return NewClient(c, chans, reqs), nil
+// }
 
 // HostKeyCallback is the function type used for verifying server
 // keys.  A HostKeyCallback must return nil if the host key is OK, or
 // an error to reject it. It receives the hostname as passed to Dial
 // or NewClientConn. The remote address is the RemoteAddr of the
 // net.Conn underlying the SSH connection.
-type HostKeyCallback func(hostname string, remote net.Addr, key PublicKey) error
+type HostKeyCallback func(hostname string, remote ma.Multiaddr, key PublicKey) error
 
 // BannerCallback is the function type used for treat the banner sent by
 // the server. A BannerCallback receives the message sent by the remote server.
@@ -241,7 +243,7 @@ type ClientConfig struct {
 // ClientConfig.HostKeyCallback to accept any host key. It should
 // not be used for production code.
 func InsecureIgnoreHostKey() HostKeyCallback {
-	return func(hostname string, remote net.Addr, key PublicKey) error {
+	return func(hostname string, remote ma.Multiaddr, key PublicKey) error {
 		return nil
 	}
 }
@@ -250,7 +252,7 @@ type fixedHostKey struct {
 	key PublicKey
 }
 
-func (f *fixedHostKey) check(hostname string, remote net.Addr, key PublicKey) error {
+func (f *fixedHostKey) check(hostname string, remote ma.Multiaddr, key PublicKey) error {
 	if f.key == nil {
 		return fmt.Errorf("ssh: required host key was nil")
 	}

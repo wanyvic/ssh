@@ -12,6 +12,8 @@ import (
 	"net"
 	"sort"
 	"time"
+
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // These constants from [PROTOCOL.certkeys] represent the algorithm names
@@ -303,7 +305,7 @@ type CertChecker struct {
 
 // CheckHostKey checks a host key certificate. This method can be
 // plugged into ClientConfig.HostKeyCallback.
-func (c *CertChecker) CheckHostKey(addr string, remote net.Addr, key PublicKey) error {
+func (c *CertChecker) CheckHostKey(addr string, remote ma.Multiaddr, key PublicKey) error {
 	cert, ok := key.(*Certificate)
 	if !ok {
 		if c.HostKeyFallback != nil {

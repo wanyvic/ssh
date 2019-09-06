@@ -10,8 +10,9 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"sync"
+
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // debugHandshake, if set, prints messages sent and received.  Key
@@ -76,7 +77,7 @@ type handshakeTransport struct {
 	// data for host key checking
 	hostKeyCallback HostKeyCallback
 	dialAddress     string
-	remoteAddr      net.Addr
+	remoteMultiAddr ma.Multiaddr
 
 	// bannerCallback is non-empty if we are the client and it has been set in
 	// ClientConfig. In that case it is called during the user authentication
@@ -120,10 +121,10 @@ func newHandshakeTransport(conn keyingTransport, config *Config, clientVersion, 
 	return t
 }
 
-func newClientTransport(conn keyingTransport, clientVersion, serverVersion []byte, config *ClientConfig, dialAddr string, addr net.Addr) *handshakeTransport {
+func newClientTransport(conn keyingTransport, clientVersion, serverVersion []byte, config *ClientConfig, dialAddr string, addr ma.Multiaddr) *handshakeTransport {
 	t := newHandshakeTransport(conn, &config.Config, clientVersion, serverVersion)
 	t.dialAddress = dialAddr
-	t.remoteAddr = addr
+	t.remoteMultiAddr = addr
 	t.hostKeyCallback = config.HostKeyCallback
 	t.bannerCallback = config.BannerCallback
 	if config.HostKeyAlgorithms != nil {
@@ -638,7 +639,7 @@ func (t *handshakeTransport) client(kex kexAlgorithm, algs *algorithms, magics *
 		return nil, err
 	}
 
-	err = t.hostKeyCallback(t.dialAddress, t.remoteAddr, hostKey)
+	err = t.hostKeyCallback(t.dialAddress, t.remoteMultiAddr, hostKey)
 	if err != nil {
 		return nil, err
 	}
